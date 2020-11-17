@@ -399,11 +399,17 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 
 	public ngOnInit(): void {
 		this.addScrollEventHandlers();
+		/**
+		 * DADEV-1498
+		 * refres internal is not fired when document.hidden, so need to execute once visibilitychange is change to visible
+		 */
+		this.addVisibilityChangeHandlers();
 	}
 
 	public ngOnDestroy(): void {
 		this.removeScrollEventHandlers();
 		this.revertParentOverscroll();
+		this.removeVisibilityChangeHandlers();
 	}
 
 	public ngOnChanges(changes: any): void {
@@ -589,6 +595,12 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 		this.currentTween = newTween;
 	}
 
+	protected refreshOnVisible() {
+		if (document.visibilityState === 'visible') {
+			this.refresh();
+		}
+	}
+
 	protected isAngularUniversalSSR: boolean;
 
 	constructor(
@@ -737,6 +749,7 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 
 	protected disposeScrollHandler: () => void | undefined;
 	protected disposeResizeHandler: () => void | undefined;
+	protected disposeVisibilityHandler: () => void | undefined;
 
 	protected refresh_internal(itemsArrayModified: boolean, refreshCompletedCallback: () => void = undefined, maxRunTimes: number = 2): void {
 		//note: maxRunTimes is to force it to keep recalculating if the previous iteration caused a re-render (different sliced items in viewport or scrollPosition changed).
@@ -881,6 +894,17 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 
 	protected getScrollElement(): HTMLElement {
 		return this.parentScroll instanceof Window ? document.scrollingElement || document.documentElement || document.body : this.parentScroll || this.element.nativeElement;
+	}
+
+	protected addVisibilityChangeHandlers(): void {
+		this.disposeVisibilityHandler = this.renderer.listen('document', 'visibilitychange', this.refreshOnVisible);
+	}
+
+	protected removeVisibilityChangeHandlers(): void {
+		if (this.disposeVisibilityHandler) {
+			this.disposeVisibilityHandler();
+			this.disposeVisibilityHandler = undefined;
+		}
 	}
 
 	protected addScrollEventHandlers(): void {
