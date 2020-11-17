@@ -13,14 +13,11 @@ import {
 	OnInit,
 	Optional,
 	Output,
+	PLATFORM_ID,
 	Renderer2,
 	ViewChild,
 } from '@angular/core';
-
-import { PLATFORM_ID } from '@angular/core';
-import { isPlatformServer } from '@angular/common';
-
-import { CommonModule } from '@angular/common';
+import {CommonModule, isPlatformServer} from '@angular/common';
 
 import * as tween from '@tweenjs/tween.js'
 
@@ -402,11 +399,17 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 
 	public ngOnInit(): void {
 		this.addScrollEventHandlers();
+		/**
+		 * DADEV-1498
+		 * refres internal is not fired when document.hidden, so need to execute once visibilitychange is change to visible
+		 */
+		this.addVisibilityChangeHandlers();
 	}
 
 	public ngOnDestroy(): void {
 		this.removeScrollEventHandlers();
 		this.revertParentOverscroll();
+		this.removeVisibilityChangeHandlers();
 	}
 
 	public ngOnChanges(changes: any): void {
@@ -592,6 +595,12 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 		this.currentTween = newTween;
 	}
 
+	protected refreshOnVisible() {
+		if (document.visibilityState === 'visible') {
+			this.refresh();
+		}
+	}
+
 	protected isAngularUniversalSSR: boolean;
 
 	constructor(
@@ -740,6 +749,7 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 
 	protected disposeScrollHandler: () => void | undefined;
 	protected disposeResizeHandler: () => void | undefined;
+	protected disposeVisibilityHandler: () => void | undefined;
 
 	protected refresh_internal(itemsArrayModified: boolean, refreshCompletedCallback: () => void = undefined, maxRunTimes: number = 2): void {
 		//note: maxRunTimes is to force it to keep recalculating if the previous iteration caused a re-render (different sliced items in viewport or scrollPosition changed).
@@ -781,75 +791,94 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 		}
 
 		this.zone.runOutsideAngular(() => {
-			requestAnimationFrame(() => {
+			if (!document.hidden) {
+				requestAnimationFrame(() => {
 
-				if (itemsArrayModified) {
-					this.resetWrapGroupDimensions();
-				}
-				let viewport = this.calculateViewport();
-
-				let startChanged = itemsArrayModified || viewport.startIndex !== this.previousViewPort.startIndex;
-				let endChanged = itemsArrayModified || viewport.endIndex !== this.previousViewPort.endIndex;
-				let scrollLengthChanged = viewport.scrollLength !== this.previousViewPort.scrollLength;
-				let paddingChanged = viewport.padding !== this.previousViewPort.padding;
-				let scrollPositionChanged = viewport.scrollStartPosition !== this.previousViewPort.scrollStartPosition || viewport.scrollEndPosition !== this.previousViewPort.scrollEndPosition || viewport.maxScrollPosition !== this.previousViewPort.maxScrollPosition;
-
-				this.previousViewPort = viewport;
-
-				if (scrollLengthChanged) {
- 					this.renderer.setStyle(this.invisiblePaddingElementRef.nativeElement, 'transform', `${this._invisiblePaddingProperty}(${viewport.scrollLength})`);
- 					this.renderer.setStyle(this.invisiblePaddingElementRef.nativeElement, 'webkitTransform', `${this._invisiblePaddingProperty}(${viewport.scrollLength})`);
-				}
-
-				if (paddingChanged) {
-					if (this.useMarginInsteadOfTranslate) {
-						this.renderer.setStyle(this.contentElementRef.nativeElement, this._marginDir, `${viewport.padding}px`);
+					if (itemsArrayModified) {
+						this.resetWrapGroupDimensions();
 					}
-					else {
-						this.renderer.setStyle(this.contentElementRef.nativeElement, 'transform', `${this._translateDir}(${viewport.padding}px)`);
-						this.renderer.setStyle(this.contentElementRef.nativeElement, 'webkitTransform', `${this._translateDir}(${viewport.padding}px)`);
+					let viewport = this.calculateViewport();
+
+					let startChanged = itemsArrayModified || viewport.startIndex !== this.previousViewPort.startIndex;
+					let endChanged = itemsArrayModified || viewport.endIndex !== this.previousViewPort.endIndex;
+					let scrollLengthChanged = viewport.scrollLength !== this.previousViewPort.scrollLength;
+					let paddingChanged = viewport.padding !== this.previousViewPort.padding;
+					let scrollPositionChanged = viewport.scrollStartPosition !== this.previousViewPort.scrollStartPosition || viewport.scrollEndPosition !== this.previousViewPort.scrollEndPosition || viewport.maxScrollPosition !== this.previousViewPort.maxScrollPosition;
+
+					this.previousViewPort = viewport;
+
+					if (scrollLengthChanged) {
+						this.renderer.setStyle(this.invisiblePaddingElementRef.nativeElement, 'transform', `${this._invisiblePaddingProperty}(${viewport.scrollLength})`);
+						this.renderer.setStyle(this.invisiblePaddingElementRef.nativeElement, 'webkitTransform', `${this._invisiblePaddingProperty}(${viewport.scrollLength})`);
 					}
-				}
 
-				if (this.headerElementRef) {
-					let scrollPosition = this.getScrollElement()[this._scrollType];
-					let containerOffset = this.getElementsOffset();
-					let offset = Math.max(scrollPosition - viewport.padding - containerOffset + this.headerElementRef.nativeElement.clientHeight, 0);
-					this.renderer.setStyle(this.headerElementRef.nativeElement, 'transform', `${this._translateDir}(${offset}px)`);
-					this.renderer.setStyle(this.headerElementRef.nativeElement, 'webkitTransform', `${this._translateDir}(${offset}px)`);
-				}
-
-				const changeEventArg: IPageInfo = (startChanged || endChanged) ? {
-					startIndex: viewport.startIndex,
-					endIndex: viewport.endIndex,
-					scrollStartPosition: viewport.scrollStartPosition,
-					scrollEndPosition: viewport.scrollEndPosition,
-					startIndexWithBuffer: viewport.startIndexWithBuffer,
-					endIndexWithBuffer: viewport.endIndexWithBuffer,
-					maxScrollPosition: viewport.maxScrollPosition
-				} : undefined;
-
-
-				if (startChanged || endChanged || scrollPositionChanged) {
-					const handleChanged = () => {
-						// update the scroll list to trigger re-render of components in viewport
-						this.viewPortItems = viewport.startIndexWithBuffer >= 0 && viewport.endIndexWithBuffer >= 0 ? this.items.slice(viewport.startIndexWithBuffer, viewport.endIndexWithBuffer + 1) : [];
-						this.vsUpdate.emit(this.viewPortItems);
-
-						if (startChanged) {
-							this.vsStart.emit(changeEventArg);
+					if (paddingChanged) {
+						if (this.useMarginInsteadOfTranslate) {
+							this.renderer.setStyle(this.contentElementRef.nativeElement, this._marginDir, `${viewport.padding}px`);
 						}
-
-						if (endChanged) {
-							this.vsEnd.emit(changeEventArg);
+						else {
+							this.renderer.setStyle(this.contentElementRef.nativeElement, 'transform', `${this._translateDir}(${viewport.padding}px)`);
+							this.renderer.setStyle(this.contentElementRef.nativeElement, 'webkitTransform', `${this._translateDir}(${viewport.padding}px)`);
 						}
+					}
 
-						if (startChanged || endChanged) {
-							this.changeDetectorRef.markForCheck();
-							this.vsChange.emit(changeEventArg);
+					if (this.headerElementRef) {
+						let scrollPosition = this.getScrollElement()[this._scrollType];
+						let containerOffset = this.getElementsOffset();
+						let offset = Math.max(scrollPosition - viewport.padding - containerOffset + this.headerElementRef.nativeElement.clientHeight, 0);
+						this.renderer.setStyle(this.headerElementRef.nativeElement, 'transform', `${this._translateDir}(${offset}px)`);
+						this.renderer.setStyle(this.headerElementRef.nativeElement, 'webkitTransform', `${this._translateDir}(${offset}px)`);
+					}
+
+					const changeEventArg: IPageInfo = (startChanged || endChanged) ? {
+						startIndex: viewport.startIndex,
+						endIndex: viewport.endIndex,
+						scrollStartPosition: viewport.scrollStartPosition,
+						scrollEndPosition: viewport.scrollEndPosition,
+						startIndexWithBuffer: viewport.startIndexWithBuffer,
+						endIndexWithBuffer: viewport.endIndexWithBuffer,
+						maxScrollPosition: viewport.maxScrollPosition
+					} : undefined;
+
+
+					if (startChanged || endChanged || scrollPositionChanged) {
+						const handleChanged = () => {
+							// update the scroll list to trigger re-render of components in viewport
+							this.viewPortItems = viewport.startIndexWithBuffer >= 0 && viewport.endIndexWithBuffer >= 0 ? this.items.slice(viewport.startIndexWithBuffer, viewport.endIndexWithBuffer + 1) : [];
+							this.vsUpdate.emit(this.viewPortItems);
+
+							if (startChanged) {
+								this.vsStart.emit(changeEventArg);
+							}
+
+							if (endChanged) {
+								this.vsEnd.emit(changeEventArg);
+							}
+
+							if (startChanged || endChanged) {
+								this.changeDetectorRef.markForCheck();
+								this.vsChange.emit(changeEventArg);
+							}
+
+							if (maxRunTimes > 0) {
+								this.refresh_internal(false, refreshCompletedCallback, maxRunTimes - 1);
+								return;
+							}
+
+							if (refreshCompletedCallback) {
+								refreshCompletedCallback();
+							}
+						};
+
+
+						if (this.executeRefreshOutsideAngularZone) {
+							handleChanged();
 						}
-
-						if (maxRunTimes > 0) {
+						else {
+							this.zone.run(handleChanged);
+						}
+					} else {
+						if (maxRunTimes > 0 && (scrollLengthChanged || paddingChanged)) {
 							this.refresh_internal(false, refreshCompletedCallback, maxRunTimes - 1);
 							return;
 						}
@@ -857,31 +886,25 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 						if (refreshCompletedCallback) {
 							refreshCompletedCallback();
 						}
-					};
-
-
-					if (this.executeRefreshOutsideAngularZone) {
-						handleChanged();
 					}
-					else {
-						this.zone.run(handleChanged);
-					}
-				} else {
-					if (maxRunTimes > 0 && (scrollLengthChanged || paddingChanged)) {
-						this.refresh_internal(false, refreshCompletedCallback, maxRunTimes - 1);
-						return;
-					}
-
-					if (refreshCompletedCallback) {
-						refreshCompletedCallback();
-					}
-				}
-			});
+				});
+			}
 		});
 	}
 
 	protected getScrollElement(): HTMLElement {
 		return this.parentScroll instanceof Window ? document.scrollingElement || document.documentElement || document.body : this.parentScroll || this.element.nativeElement;
+	}
+
+	protected addVisibilityChangeHandlers(): void {
+		this.disposeVisibilityHandler = this.renderer.listen('document', 'visibilitychange', this.refreshOnVisible);
+	}
+
+	protected removeVisibilityChangeHandlers(): void {
+		if (this.disposeVisibilityHandler) {
+			this.disposeVisibilityHandler();
+			this.disposeVisibilityHandler = undefined;
+		}
 	}
 
 	protected addScrollEventHandlers(): void {
