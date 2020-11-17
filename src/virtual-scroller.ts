@@ -595,7 +595,7 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 		this.currentTween = newTween;
 	}
 
-	protected refreshOnVisible() {
+	protected refreshOnVisible(): void {
 		if (document.visibilityState === 'visible') {
 			this.refresh();
 		}
@@ -897,7 +897,7 @@ export class VirtualScrollerComponent implements OnInit, OnChanges, OnDestroy {
 	}
 
 	protected addVisibilityChangeHandlers(): void {
-		this.disposeVisibilityHandler = this.renderer.listen('document', 'visibilitychange', this.refreshOnVisible);
+		this.disposeVisibilityHandler = this.renderer.listen('document', 'visibilitychange', () => this.refreshOnVisible());
 	}
 
 	protected removeVisibilityChangeHandlers(): void {
